@@ -1,0 +1,1395 @@
+<!doctype html>
+<html lang="en" translate="no" class="notranslate">
+<head>
+<meta charset="utf-8">
+<meta name="google" content="notranslate">
+<!-- Privacy-friendly visitor counter (GoatCounter: no cookies, no personal data). Counting is done
+     explicitly in the script below (page opened, demo chosen, RUN clicked); localhost is not counted. -->
+<script data-goatcounter="https://segreg.goatcounter.com/count"
+        data-goatcounter-settings='{"no_onload": true}'
+        async src="https://gc.zgo.at/count.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SEGREG – Beunis (2021)</title>
+<meta name="description" content="Interactive web version of the SEGREG simulation (R. Beunis, 2021): segregation of two conditioned stimuli onto different nanoloops in the nucleus interpositus, and the double peaks phenomenon.">
+<!--
+  SEGREG - web version (HTML/JavaScript) of segreg.prg (Dr. R. Beunis, Visual FoxPro 9.0, 2020-2021).
+  One self-contained file, no external libraries.
+
+  Article: Beunis R. (2021) An Eye Blink Reflex Model based on an Intracellular Timing Mechanism in
+  Purkinje Cells and on a Conditioned Stimulus Segregation Mechanism in the Nucleus Interpositus
+  might explain the Double Peaks Phenomenon.  Zenodo, doi:10.5281/zenodo.17584844
+
+  URL parameters:  ?demo=1..14   ?speed=0.25..16   ?seed=N (reproducible run)
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #808080; overflow: hidden; }
+  #stage { position: absolute; left: 0; top: 0; height: 540px; transform-origin: 0 0; overflow: hidden;
+           font-family: Arial, Helvetica, "Liberation Sans", sans-serif; font-weight: bold; }
+  #form { position: absolute; left: 0; top: 0; height: 540px; overflow: hidden; background: #fff; }
+  #cv { position: absolute; left: 0; top: 0; }
+  .ctl { position: absolute; box-sizing: border-box; margin: 0; padding: 0; overflow: hidden; font-weight: bold; }
+  .btn { background: #e1e1e1; border: 1px solid #adadad; color: #000; font-family: inherit; font-weight: bold;
+         display: flex; align-items: center; justify-content: center; text-align: center;
+         white-space: pre-wrap; line-height: 1.1; cursor: default; padding: 0 1px; }
+  .btn:hover:not(:disabled) { background: #e5f1fb; border-color: #0078d7; }
+  .btn:disabled { color: #a0a0a0; }
+  .lbl { border-style: solid; text-align: center; white-space: pre; line-height: 1.15; padding-top: 2px;
+         cursor: default; user-select: none; -webkit-user-select: none; }
+  .spin { border: 1px solid #7a7a7a; background: #fff; }
+  .spin input { position: absolute; left: 0; top: 0; bottom: 0; right: 17px; width: auto; border: 0; outline: 0;
+                text-align: right; font: bold 9px Arial, Helvetica, sans-serif; padding: 0 2px; background: #fff; }
+  .spin input:disabled { background: #f0f0f0; color: #a0a0a0; }
+  .spin button { position: absolute; right: 0; width: 16px; height: 50%; border: 1px solid #adadad; background: #e1e1e1;
+                 font-size: 6px; line-height: 1; padding: 0; cursor: default; }
+  .spin button.up { top: 0; } .spin button.dn { bottom: 0; }
+  .spin button:disabled { color: #b0b0b0; }
+  .panel { background: #e1e1e1; border: 1px solid #adadad; font-family: inherit; font-weight: bold; font-size: 9px;
+           white-space: pre-wrap; text-align: center; line-height: 1.2; cursor: pointer; padding: 0 2px; }
+  .panel:hover { background: #e5f1fb; border-color: #0078d7; }
+  .panel.on { background: #ffff00; border: 2px solid #000; }
+  .speedlbl { color: #fff; font-size: 9px; text-align: left; }
+  /* touch screens: no text selection or callout menu on a long press; tooltips via press-and-hold */
+  body { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  input { -webkit-user-select: text; user-select: text; }
+  #stage { touch-action: manipulation; }
+  #tip { position: fixed; z-index: 1000; display: none; max-width: 340px; padding: 6px 8px;
+         background: #ffffe1; border: 1px solid #000; box-shadow: 2px 2px 6px rgba(0,0,0,.4);
+         font: 13px Arial, Helvetica, sans-serif; color: #000; white-space: pre-wrap; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------------------------
+// Colours (PROCEDURE INITCOLOR) as 0xRRGGBB
+// ---------------------------------------------------------------------------------------------
+const pnZwart = 0x000000, pnWit = 0xFFFFFF, pnRood = 0xFF0000, pnBlauw = 0x0000FF, pnCyaan = 0x00FFFF;
+const pcCR = "\n";
+const PNW = 1264, PNH = 540;   // pnW = 1264 as in the article version of the program; pnH = form height
+const PANEL_W = 160;           // demo panel to the right of the form
+
+const css = c => "#" + c.toString(16).padStart(6, "0");
+const u32 = c => (0xFF000000 | ((c & 0xFF) << 16) | (c & 0xFF00) | ((c >> 16) & 0xFF)) >>> 0;
+const FONTS = { "Arial": 'Arial, Helvetica, "Liberation Sans", sans-serif',
+                "Courier New": '"Courier New", Courier, "Liberation Mono", monospace' };
+const PX = pt => Math.round(pt * 96 / 72);   // MulDiv(pt, 96, 72)
+
+// ---------------------------------------------------------------------------------------------
+// VFP helper functions
+// ---------------------------------------------------------------------------------------------
+// INT(): truncation.  CHR() of a fractional number also truncates (measured in VFP 9).
+const INT = x => Math.trunc(x);
+// RGB(): a division by zero (0/0 when both synapses are zero) gives an overflow value in VFP,
+// and RGB() of it returns 0 (measured in VFP 9).  NaN plays that role here.
+const RGB = (r, g, b) => (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b))
+  ? ((INT(r) & 255) << 16) | ((INT(g) & 255) << 8) | (INT(b) & 255) : 0;
+const STREXTRACT = (s, delim, n) => { const p = s.split(delim); return n < p.length ? p[n] : ""; };
+const LTSTR = n => String(Math.round(n));
+function STR(n, len = 10, dec = 0) {
+  // VFP STR(): right-aligned, rounded half away from zero, decimals dropped when the number does not fit;
+  // an overflow value (division by zero) prints as asterisks.  Decimal separator ',' as on the screenshots.
+  if (!Number.isFinite(n)) return "*".repeat(len);
+  for (let d = dec; d >= 0; d--) {
+    const f = 10 ** d, r = Math.round(Math.abs(n) * f + 1e-7) / f;
+    const s = (n < 0 && r !== 0 ? "-" : "") + r.toFixed(d);
+    if (s.length <= len) return s.padStart(len).replace(".", ",");
+  }
+  return "*".repeat(len);
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const chan = new MessageChannel(), chanQ = [];
+chan.port1.onmessage = () => { const r = chanQ.shift(); if (r) r(); };
+const yieldNow = () => new Promise(r => { chanQ.push(r); chan.port2.postMessage(0); });
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+const STOPPED = { stopped: true };   // thrown when the form is replaced (other demo chosen)
+
+// ---------------------------------------------------------------------------------------------
+// Form graphics: VFP Form.Line/Circle/PSet/Print/Cls on a pixel buffer (without anti-aliasing)
+// ---------------------------------------------------------------------------------------------
+class FormGraphics {
+  constructor(W, H, back) {
+    this.W = W; this.H = H; this.BackColor = back;
+    this.img = new ImageData(W, H);
+    this.buf = new Uint32Array(this.img.data.buffer);
+    this.ForeColor = pnZwart; this.FillColor = pnZwart; this.FillStyle = 1; this.DrawWidth = 1; this.DrawStyle = 0;
+    this.FontSize = 6; this.FontName = "Courier New";
+    this.tc = document.createElement("canvas");
+    this.tctx = this.tc.getContext("2d", { willReadFrequently: true });
+    this.cache = new Map();
+    this.Cls();
+  }
+  set DrawWidthV(v) { this.DrawWidth = INT(v); }   // DrawWidth is an integer property: VFP truncates
+  Cls() { this.buf.fill(u32(this.BackColor)); this.dirty = true; }
+  span(y, x0, x1, c) {
+    if (y < 0 || y >= this.H) return;
+    if (x0 < 0) x0 = 0; if (x1 > this.W - 1) x1 = this.W - 1;
+    if (x0 > x1) return;
+    const o = y * this.W; this.buf.fill(c, o + x0, o + x1 + 1);
+  }
+  px(x, y, c) { if (x >= 0 && y >= 0 && x < this.W && y < this.H) this.buf[y * this.W + x] = c; }
+  Line(x1, y1, x2, y2) {
+    if (!Number.isFinite(x1 + y1 + x2 + y2)) return;   // overflow coordinates: nothing is drawn
+    const w = Math.max(1, this.DrawWidth | 0), c = u32(this.ForeColor);
+    x1 = Math.round(x1); y1 = Math.round(y1); x2 = Math.round(x2); y2 = Math.round(y2);
+    if (w <= 1) {   // Bresenham; DrawStyle 2 (dot) = 3 pixels on, 3 off (GDI cosmetic PS_DOT pen)
+      const dot = this.DrawStyle === 2;
+      let dx = Math.abs(x2 - x1), sx = x1 < x2 ? 1 : -1, dy = -Math.abs(y2 - y1), sy = y1 < y2 ? 1 : -1, err = dx + dy, k = 0;
+      for (;;) {
+        if (!dot || (k % 6) < 3) this.px(x1, y1, c);
+        k++;
+        if (x1 === x2 && y1 === y2) break;
+        const e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x1 += sx; }
+        if (e2 <= dx) { err += dx; y1 += sy; }
+      }
+    } else {        // thick line with round end caps (GDI pen)
+      const r = w / 2, dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy);
+      let poly = null;
+      if (len > 0) {
+        const nx = -dy / len * r, ny = dx / len * r;
+        poly = [[x1 + nx, y1 + ny], [x2 + nx, y2 + ny], [x2 - nx, y2 - ny], [x1 - nx, y1 - ny]];
+      }
+      const ymin = Math.ceil(Math.min(y1, y2) - r), ymax = Math.floor(Math.max(y1, y2) + r);
+      for (let y = ymin; y <= ymax; y++) {
+        let lo = Infinity, hi = -Infinity;
+        for (const [cx, cy] of [[x1, y1], [x2, y2]]) {
+          const t = r * r - (y - cy) * (y - cy);
+          if (t >= 0) { const s = Math.sqrt(t); if (cx - s < lo) lo = cx - s; if (cx + s > hi) hi = cx + s; }
+        }
+        if (poly) for (let i = 0; i < 4; i++) {
+          const [px_, py_] = poly[i], [qx, qy] = poly[(i + 1) % 4];
+          if (py_ === qy) { if (y === py_) { lo = Math.min(lo, px_, qx); hi = Math.max(hi, px_, qx); } continue; }
+          if (y >= Math.min(py_, qy) && y <= Math.max(py_, qy)) {
+            const x = px_ + (y - py_) * (qx - px_) / (qy - py_);
+            if (x < lo) lo = x; if (x > hi) hi = x;
+          }
+        }
+        if (lo <= hi) this.span(y, Math.ceil(lo - 1e-9), Math.floor(hi + 1e-9), c);
+      }
+    }
+    this.dirty = true;
+  }
+  PSet(x, y) {
+    if (!Number.isFinite(x + y)) return;
+    const w = Math.max(1, this.DrawWidth | 0);
+    if (w <= 1) this.px(Math.round(x), Math.round(y), u32(this.ForeColor));
+    else { const s = this.DrawStyle; this.DrawStyle = 0; this.Line(x, y, x, y); this.DrawStyle = s; }
+    this.dirty = true;
+  }
+  Circle(r, x, y) {
+    if (!Number.isFinite(x + y)) return;
+    const w = Math.max(1, this.DrawWidth | 0), e = Math.floor(w / 2);
+    x = Math.round(x); y = Math.round(y);
+    const Ro = r + e + 0.5, Ri = Ro - w, fore = u32(this.ForeColor);
+    const fill = this.FillStyle === 0 ? u32(this.FillColor) : null;
+    const n = Math.ceil(Ro);
+    for (let dy = -n; dy <= n; dy++) {
+      const t = Ro * Ro - dy * dy;
+      if (t < 0) continue;
+      const xo = Math.floor(Math.sqrt(t));
+      const ti = Ri > 0 ? Ri * Ri - dy * dy : -1;
+      if (ti <= 0) { this.span(y + dy, x - xo, x + xo, fore); continue; }
+      const xi = Math.ceil(Math.sqrt(ti)) - 1;
+      this.span(y + dy, x - xo, x - xi - 1, fore);
+      this.span(y + dy, x + xi + 1, x + xo, fore);
+      if (fill !== null) this.span(y + dy, x - xi, x + xi, fill);
+    }
+    this.dirty = true;
+  }
+  fontCss() { return "bold " + PX(this.FontSize) + "px " + FONTS[this.FontName]; }
+  // Glyph masks of the (monospaced) form font, at 5 sub-pixel offsets; text is composed from them,
+  // which is much faster than rendering every changing number string anew.
+  fontInfo() {
+    const f = this.fontCss();
+    let fi = this.cache.get(f);
+    if (!fi) {
+      const ctx = this.tctx; ctx.font = f;
+      const m = ctx.measureText("0"), px = PX(this.FontSize);
+      const asc = Math.round(m.fontBoundingBoxAscent ?? px * 0.83), desc = Math.round(m.fontBoundingBoxDescent ?? px * 0.3);
+      fi = { f, adv: m.width, asc, h: asc + desc, gw: Math.ceil(m.width) + 4, glyphs: new Map() };
+      this.cache.set(f, fi);
+    }
+    return fi;
+  }
+  glyph(fi, ch, phase) {
+    const key = ch + phase;
+    let gl = fi.glyphs.get(key);
+    if (!gl) {
+      const ctx = this.tctx;
+      this.tc.width = fi.gw; this.tc.height = fi.h;
+      ctx.clearRect(0, 0, fi.gw, fi.h);
+      ctx.font = fi.f; ctx.fillStyle = "#000"; ctx.textBaseline = "alphabetic";
+      ctx.fillText(ch, 1 + phase / 5, fi.asc);
+      const d = ctx.getImageData(0, 0, fi.gw, fi.h).data, a = new Uint8Array(fi.gw * fi.h);
+      for (let i = 0; i < a.length; i++) a[i] = d[i * 4 + 3];
+      gl = a; fi.glyphs.set(key, gl);
+    }
+    return gl;
+  }
+  Print(t, x, y) {
+    // Opaque text (FontTransparent = .F.), as on the screenshots.
+    const fi = this.fontInfo();
+    x = Math.round(x); y = Math.round(y);
+    const tw = Math.ceil(fi.adv * t.length) + 1;
+    const back = u32(this.BackColor), fr = (this.ForeColor >> 16) & 255, fg = (this.ForeColor >> 8) & 255, fb = this.ForeColor & 255;
+    for (let j = 0; j < fi.h; j++) this.span(y + j, x, x + tw - 1, back);
+    const W = this.W, H = this.H, buf = this.buf;
+    for (let i = 0; i < t.length; i++) {
+      const ch = t[i];
+      if (ch === " ") continue;
+      const pos = i * fi.adv, ip = Math.floor(pos), phase = Math.round((pos - ip) * 5) % 5;
+      const gl = this.glyph(fi, ch, phase), x0 = x + ip - 1;
+      for (let j = 0; j < fi.h; j++) {
+        const yy = y + j; if (yy < 0 || yy >= H) continue;
+        for (let k = 0; k < fi.gw; k++) {
+          const a = gl[j * fi.gw + k]; if (!a) continue;
+          const xx = x0 + k; if (xx < 0 || xx >= W) continue;
+          const o = yy * W + xx, p = buf[o], b = 255 - a;
+          const r = ((p & 255) * b + fr * a) / 255, gg = (((p >> 8) & 255) * b + fg * a) / 255, bb = (((p >> 16) & 255) * b + fb * a) / 255;
+          buf[o] = (0xFF000000 | (bb << 16) | (gg << 8) | r) >>> 0;
+        }
+      }
+    }
+    this.dirty = true;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------------------------------------
+class Ctl {
+  constructor(app, name, el, cls) {
+    this.app = app; this.Name = name; this.el = el; this.cls = cls;
+    this._vis = true; this._en = true; this._tip = ""; this.Tag = "";
+    el.classList.add("ctl"); app.formEl.appendChild(el);
+  }
+  place(l, t, w, h) {
+    Object.assign(this.el.style, { left: l + "px", top: t + "px", width: w + "px", height: h + "px" });
+  }
+  get Visible() { return this._vis; } set Visible(v) { this._vis = !!v; this.el.style.display = this._vis ? "" : "none"; }
+  get Enabled() { return this._en; } set Enabled(v) { this._en = !!v; this._apply(); }
+  get ToolTipText() { return this._tip; } set ToolTipText(v) { this._tip = v; this.el.title = v; }
+  _apply() {}
+}
+
+class VLabel extends Ctl {   // BorderStyle = 1, Alignment = 2 (centred)
+  constructor(app, name, cls, caption, o = {}) {
+    super(app, name, document.createElement("div"), cls);
+    this.el.classList.add("lbl");
+    this._cap = caption; this._fore = o.fore ?? pnZwart; this._back = o.back ?? pnWit; this._size = o.size ?? 8;
+    this.el.textContent = caption; this._apply();
+  }
+  get Caption() { return this._cap; }
+  set Caption(v) { if (v !== this._cap) { this._cap = v; this.app.dirtyLabels.add(this); } }  // appears at the next repaint
+  _flush() { this.el.textContent = this._cap; }
+  get ForeColor() { return this._fore; } set ForeColor(v) { this._fore = v; this._apply(); }
+  get BackColor() { return this._back; } set BackColor(v) { this._back = v; this._apply(); }
+  _apply() {
+    const fg = this._en ? this._fore : 0x6D6D6D, s = this.el.style;
+    s.color = css(fg); s.background = css(this._back); s.borderColor = "#000"; s.borderWidth = "1px";
+    s.fontFamily = FONTS.Arial; s.fontSize = PX(this._size) + "px";
+  }
+}
+
+class VButton extends Ctl {   // COMMANDBUTTON (here only used as a label above a spinner)
+  constructor(app, name, cls, caption, size) {
+    super(app, name, document.createElement("button"), cls);
+    this.el.classList.add("btn"); this.el.tabIndex = -1;
+    this.el.style.fontSize = PX(size) + "px";
+    this.Caption = caption;
+  }
+  get Caption() { return this._cap; } set Caption(v) { this._cap = v; this.el.textContent = v; }
+  _apply() { this.el.disabled = !this._en; }
+}
+
+class VSpinner extends Ctl {
+  constructor(app, name, o) {
+    super(app, name, document.createElement("div"), "SG_SP");
+    this.el.classList.add("spin");
+    this.low = o.low; this.high = o.high; this.Increment = o.inc; this._value = o.value;
+    this.onUser = null;   // InteractiveChange / Valid: user changed the value
+    this.inp = document.createElement("input"); this.inp.type = "text";
+    this.inp.style.fontSize = PX(7) + "px";
+    this.up = document.createElement("button"); this.up.className = "up"; this.up.textContent = "▲"; this.up.tabIndex = -1;
+    this.dn = document.createElement("button"); this.dn.className = "dn"; this.dn.textContent = "▼"; this.dn.tabIndex = -1;
+    this.el.append(this.inp, this.up, this.dn);
+    this.up.addEventListener("click", () => this.spin(+1));
+    this.dn.addEventListener("click", () => this.spin(-1));
+    this.inp.addEventListener("blur", () => this._parse());
+    this.inp.addEventListener("keydown", e => { if (e.key === "Enter") { this._parse(); this.inp.blur(); } e.stopPropagation(); });
+    this._show();
+  }
+  _fmt(v) {
+    if (Number.isInteger(this.Increment) && Number.isInteger(v)) return String(v);
+    let s = v.toFixed(4).replace(/0+$/, ""); if (s.endsWith(".")) s += "0";
+    return s.replace(".", ",");
+  }
+  _show() { this.inp.value = this._fmt(this._value); }
+  _parse() {
+    const v = parseFloat(this.inp.value.replace(",", "."));
+    if (isNaN(v)) { this._show(); return; }
+    const old = this._value;
+    this.Value = v;
+    if (this._value !== old && this.onUser) this.onUser(0);
+  }
+  spin(d) {
+    if (!this._en) return;
+    const old = this._value;
+    this.Value = Math.round((this._value + d * this.Increment) * 1e10) / 1e10;
+    if (this.onUser) this.onUser(d, this._value !== old);
+  }
+  get Value() { return this._value; }
+  // Setting Value in code does not write to the ControlSource (as in VFP); only user changes do.
+  set Value(v) { v = Math.min(Math.max(v, this.low), this.high); this._value = v; this._show(); }
+  _apply() { this.inp.disabled = this.up.disabled = this.dn.disabled = !this._en; }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The SEGREG form
+// ---------------------------------------------------------------------------------------------
+// SEGREGMEM.DBF: one record with the parameters (FIELD(1)..FIELD(9) are the ControlSources of SG_SP1..9)
+const FIELDS = ["NONQTY", "LTP", "LTD", "CR_TH", "LTP_BR_TH", "RAND", "BGN", "INICHANCE", "STOPLIM"];
+const DEMO_SGM = { NONQTY: 20, LTP: 1.0, LTD: 0.1, CR_TH: 30, LTP_BR_TH: 70, RAND: 1, BGN: 0, INICHANCE: 1, STOPLIM: 90 };
+
+class Segreg {
+  constructor(stage, o) {
+    this.stage = stage;
+    this.rand = o.seed != null ? mulberry32(o.seed) : Math.random;
+    this.plCalled = !!o.plCalled; this.pcCMD = o.pcCMD || ""; this.plIA = !!o.plIA;
+    this.plStop = this.plRun = this.plAbort = false;
+    this.pnW = PNW; this.pnH = PNH;
+    this.pnDist = this.pnHOffSet = this.pnVOffSet = this.pnHPosNON = this.pnHPosPuC = this.pnRad = 0;
+    this.pnSteps = this.pnStepsTot = this.pnSUMSS_BUS = this.pnSUMSS_EUS = this.pnSatELTP = this.pnStepFactor = 0;
+    this.pnSatBLTP = 0;
+    // SEGREGMEM.DBF is not kept between sessions here: the record starts with the demo values.
+    this.SGM = Object.assign({}, DEMO_SGM);
+    this.SS = [null, [0], [0]]; this.SUMSS = [0, 0, 0]; this.SUMSSCR1 = [0, 0, 0]; this.SUMSSCR2 = [0, 0, 0];
+    this.TERMS = [null, [], []];
+    this.running = false; this.dead = false; this.keys = 0;
+    this.speed = 1; this.onWidth = null;
+    this.dirtyLabels = new Set(); this.controls = {};
+
+    this.formEl = document.createElement("div"); this.formEl.id = "form";
+    stage.appendChild(this.formEl);
+    this.g = new FormGraphics(this.pnW, this.pnH, pnWit);
+    this.cv = document.createElement("canvas"); this.cv.id = "cv";
+    this.cv.width = this.pnW; this.cv.height = this.pnH;
+    this.formEl.appendChild(this.cv);
+    this.ctx = this.cv.getContext("2d");
+    this._width = 0;
+    this.Width = this.pnW / 2;
+    this.build();
+    const loop = () => { if (this.dead) return; this.flush(); requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
+  }
+
+  // -- infrastructure -------------------------------------------------------------------------
+  get Width() { return this._width; }
+  set Width(v) {   // form width; the form grows to the right here (in VFP its left edge moved left)
+    v = Math.round(Math.min(Math.max(v, 100), this.pnW));
+    if (v === this._width) return;
+    this._width = v;
+    this.formEl.style.width = v + "px";
+    if (this.onWidth) this.onWidth(v);
+  }
+  flush() {
+    for (const l of this.dirtyLabels) l._flush();
+    this.dirtyLabels.clear();
+    if (this.g.dirty) { this.ctx.putImageData(this.g.img, 0, 0, 0, 0, this._width, this.pnH); this.g.dirty = false; }
+  }
+  check() { if (this.dead) throw STOPPED; }
+  // DOEVENTS once per program step, paced to the speed of the VFP program: measured in VFP 9,
+  // a step takes about 0.2 ms + 0.28 ms per NON (20 NONs: 170 steps/s, 10 NONs: 330 steps/s).
+  async DOEVENTS() {
+    this.check();
+    const now = performance.now();
+    this._due += (0.2 + 0.28 * this.SGM.NONQTY) / this.speed;
+    if (this._due < now - 40) this._due = now - 40;   // no catching up after a slow moment
+    if (this._due > now + 4) { this.flush(); await sleep(this._due - now); this._lastYield = performance.now(); }
+    else if (now - this._lastYield > 16) { this.flush(); await yieldNow(); this._lastYield = performance.now(); }
+    this.check();
+  }
+  async WAIT(secs) {   // WAIT '' TIMEOUT secs (a key press ends it earlier)
+    this.keys = 0;
+    const end = performance.now() + secs * 1000 / this.speed;
+    while (performance.now() < end && this.keys === 0) { this.flush(); await sleep(15); this.check(); }
+    this.keys = 0;
+    this._due = performance.now();
+  }
+  BEEP() { /* ?? CHR(7): the VFP program beeps at the end of a run (not reproduced here) */ }
+  SetAll(prop, value, cls) { for (const c of Object.values(this.controls)) if (cls === undefined || c.cls === cls) c[prop] = value; }
+  add(c) { this.controls[c.Name] = c; this[c.Name] = c; return c; }
+  commitSpinners() { for (const c of Object.values(this.controls)) if (c instanceof VSpinner && document.activeElement === c.inp) c._parse(); }
+  stop() { this.dead = true; }
+
+  // -- building the form (AddObject in Activate) ---------------------------------------------
+  build() {
+    const pnW = this.pnW, pnH = this.pnH;
+    // SG_CBU1..6 : switches at the top
+    for (let nX = 1; nX <= 6; nX++) {
+      const w = (pnW / 2) / 6;
+      const l = this.add(new VLabel(this, "SG_CBU" + nX, "SG_CBU",
+        STREXTRACT(",CS1 OFF,CS2 OFF,---,TRACE ON,BEAM ON,METAB.BRAKE ON,", ",", nX),
+        { size: 8, fore: nX < 3 ? pnWit : pnZwart, back: pnCyaan }));
+      l.Tag = l.Caption;
+      l.place((nX - 1) * w, 0, w, 20);
+      if (nX === 3) {
+        l.Enabled = false;
+        l.Tag = "INTERMIXED";
+        l.ToolTipText = "When 'INTERMIXED' CS1 and CS2 are activated alternately (but still randomly)," + pcCR +
+          "when 'COMPOUNDED' CS2 always follows CS1 and only then is the US supposed to happen :" + pcCR +
+          "Programmatically it is implemented by disabling LTD (since both CSs are active when the US occurs)" + pcCR +
+          "and by using the combined sums of SSs in the calculations.";
+      } else if (nX === 6) {
+        l.ToolTipText = "Activating the 'metabolic brake' is a 'shift of view' :" + pcCR +
+          "LTP saturation is no more viewed as a local synapse related phenomenon" + pcCR +
+          "but as a whole cell phenomenon : the metabolic resources put a limit on the amount of LTP the cell can maintain." + pcCR +
+          "Programmatically it is implemented by having a decline in terminal connection chance at the NON level" +
+          " when LTP in the NON goes up.";
+      }
+      l.el.addEventListener("click", () => { if (l.Enabled) this.CBU_Click(l); });
+    }
+    // SG_CBD1..3 : RUN / STOP / ABORT
+    for (let nX = 1; nX <= 3; nX++) {
+      const w = (pnW / 2) / 3;
+      const l = this.add(new VLabel(this, "SG_CBD" + nX, "SG_CBD", STREXTRACT(",RUN,STOP,ABORT,", ",", nX), { size: 8, back: pnWit }));
+      l.place((nX - 1) * w, 20, w, 20);
+      if (nX === 2) {
+        l.Enabled = false;
+        l.ToolTipText = "Interrupts the run, click 'CONTINUE' to resume where it was halted." + pcCR +
+          "You can use the 'run steps' setting to interrupt automatically after x steps.";
+      } else if (nX === 3) l.ToolTipText = "Aborts the run, click 'RUN' to restart.";
+      // mouse: act on press (VFP MouseDown); touch: act on tap, so that press-and-hold can show the tooltip
+      const press = () => {
+        if (!l.Enabled) return;
+        if (l.Caption === "RUN" && !this.running) gcCount("run", "RUN clicked");
+        this.CBD_MouseDown(l).catch(e => { if (e !== STOPPED) throw e; });
+      };
+      l.el.addEventListener("pointerdown", e => { if (e.pointerType !== "touch") press(); });
+      l.el.addEventListener("click", () => { if (lastPointerType === "touch") press(); });
+    }
+    // SG_SPLB1..11 (labels above the spinners) + SG_SP1..11 (spinners)
+    const caps = ",NON quantity,LTP gain,LTD gain,CR (US brake) from,LTP brake from,Random factor,Background noise," +
+                 "Term. conn. chance one over x,STOP limit,Demo,Run x steps and interrupt,";
+    const tips = [null,
+      "Sets the number of displayed 'nanoloops' (NONs, PuCs ...) to x.",
+      "A lower x value prolongs the run, showing a more detailed time course.",
+      "Without LTD (x=0) there is no segregation. A high LTD gain speeds up segregation, but then 'double peaks' barely get a chance to appear.",
+      "At this value of SUMSS (the active part) the US starts to be subdued by an upcoming CR." + pcCR +
+        "When x is set low a long period of double peaks appears, if set high they may not appear at all.",
+      "At x % of max LTP (10), LTP increase starts to slow down." + pcCR +
+        "In 'single view' (at the synapse) it takes in account only the ACTIVE synapse." + pcCR +
+        "In 'population view' it is interpreted that metabolic resources start to fall short to sustain the required LTP level cell wide," + pcCR +
+        "and hence (when 'metab. brake is ON') the calculation is based on the sum of all SSs (active and nonactive).",
+      "The random factor for LTP co-determines the speed of segregation : when x=0 no segregation occurs.",
+      "Sets the % of background noise (here simulated by low frequency activation of the inactive competing CS).",
+      "Sets the chance for terminals to connect to NONs at the beginning of the run," + pcCR +
+        "before the metabolic brake and declining US strength step in to lower it." + pcCR +
+        "Read the chance as 1/x at each step for each terminal." + pcCR +
+        "Keeping the chances high (x=1) raises the probability for double connections - needed to have an initial 'double peak phenomenon'.",
+      "Ends the run when x% of maximum SumSS (the CR is a function of it) is reached." + pcCR +
+        "Set at 100% to keep a run going on indefinitely.",
+      "Sets the demo values for demo x . Move the cursor over the up- or downclick button to see a description of the demo.",
+      "Interrupts the run every x steps, click on CONTINUE to resume."];
+    //            NONQTY   LTP    LTD    CR_TH  LTP_BR_TH  RAND   BGN    INICHANCE  STOPLIM  Demo nr  RunSteps
+    const LOW  = [0, 6,     0.1,   0.0,   0,     0,         0.0,   0,     0,         10,      0,       0];
+    const HIGH = [0, 100,   5,     5,     99,    100,       10.0,  100,   5000,      100,     14,      500];
+    const INC  = [0, 2,     0.1,   0.1,   1,     1,         0.1,   1,     10,        1,       1,       10];
+    for (let nX = 1; nX <= 11; nX++) {
+      const w = (pnW / 2) / 11;
+      const b = this.add(new VButton(this, "SG_SPLB" + nX, "SG_SPLB", STREXTRACT(caps, ",", nX), 6));
+      b.ToolTipText = tips[nX];
+      b.place((nX - 1) * w, pnH - 60, w, 30);
+      // Init value; for SG_SP1..9 the bound field (ControlSource = FIELD(nX)) supplies the value
+      const value = nX <= 9 ? this.SGM[FIELDS[nX - 1]] : 0;
+      const sp = this.add(new VSpinner(this, "SG_SP" + nX, { low: LOW[nX], high: HIGH[nX], inc: INC[nX], value }));
+      sp.place((nX - 1) * w, pnH - 30, w, 30);
+      if (nX <= 9) sp.onUser = () => { this.SGM[FIELDS[nX - 1]] = sp.Value; };   // Valid: REPLACE field WITH Value
+      else if (nX === 10) sp.onUser = (d, changed) => { if (d !== 0) this.SP10_UpClick(); };
+    }
+  }
+
+  async activate() {
+    if (this.lSEGREG || this.dead) return;   // Activate: only once
+    this.lSEGREG = true;
+    try {
+      if (this.plCalled) await this.DEMO(); else await this.DORUN(false);
+    } catch (e) { if (e !== STOPPED) throw e; }
+  }
+
+  // -- PROCEDURE DEMO --------------------------------------------------------------------------
+  async DEMO(lNoRun = false) {
+    const nCMD = parseInt(this.pcCMD, 10) || 0;
+    this.plRun = true;
+    Object.assign(this.SGM, DEMO_SGM);
+    this.LOADSPS();
+    if (this.plCalled && !this.plIA) {   // which controls a demo shows (article version of the program)
+      this.SetAll("Visible", false);
+      if (nCMD > 4) {
+        this.SetAll("Visible", true, "SG_SPLB");
+        this.SetAll("Visible", true, "SG_SP");
+        this.SetAll("Enabled", false, "SG_SP");
+        this.SG_CBU3.Visible = true; this.SG_CBU3.Enabled = false;
+        this.SG_CBU4.Visible = true; this.SG_CBU5.Visible = true;
+        this.SG_CBU6.Visible = true; this.SG_CBU6.Enabled = false;
+      }
+      if (nCMD > 7) this.SG_CBU6.Enabled = true;
+      this.SG_CBU1.Visible = true; this.SG_CBU2.Visible = true; this.SG_CBD3.Visible = true;
+    }
+    const S = this.SGM;
+    switch (nCMD) {   // First DORUN always with .F. to initialize values
+      case 1:   // Presentation of demo components
+        this.SETTINGS("ON", "ON", "I", "ON", "ON", "OFF");
+        await this.DORUN(false, 100, lNoRun); break;
+      case 2:   // Showing thickening lines
+        this.SETTINGS("ON", "ON", "I", "ON", "ON", "OFF");
+        await this.DORUN(false, 345, lNoRun); break;
+      case 3:   // Showing Gauss curves
+        this.SETTINGS("ON", "ON", "I", "ON", "ON", "OFF");
+        await this.DORUN(false, 500, lNoRun); break;
+      case 4:   // Complete run, intermixed, trace off, showing the segregation process
+        this.SETTINGS("ON", "ON", "I", "OFF", "ON", "OFF");
+        await this.DORUN(false, 6700, lNoRun); break;
+      case 5:   // Trace divergence demo with 10 NONs, random function enabled
+        this.SETTINGS("ON", "ON", "I", "ON", "OFF", "OFF");
+        S.NONQTY = 10;
+        await this.DORUN(false, 8000, lNoRun); break;
+      case 6:   // Trace divergence demo with 10 NONs, random function disabled
+        this.SETTINGS("ON", "ON", "I", "ON", "OFF", "OFF");
+        S.NONQTY = 10; S.RAND = 0;
+        await this.DORUN(false, 4500, lNoRun); break;
+      case 7:   // 'Transfer training' CS1->CS2->CS1 with M-BRAKE OFF
+        this.SETTINGS("ON", "OFF", "I", "ON", "ON", "OFF");
+        if (lNoRun) return;
+        S.CR_TH = 5;
+        await this.DORUN(false, 6700, lNoRun);
+        await this.WAIT(2);
+        this.SETTINGS("OFF", "ON", "I", "ON", "ON", "OFF");
+        await this.DORUN(true, 6700, lNoRun);
+        await this.WAIT(2);
+        this.SETTINGS("ON", "OFF", "I", "ON", "ON", "OFF");
+        await this.DORUN(true, 6700, lNoRun); break;
+      case 8:   // 'Transfer training' CS1->CS2->CS1 with M-BRAKE ON
+        this.SETTINGS("ON", "OFF", "I", "ON", "ON", "ON");
+        if (lNoRun) return;
+        S.CR_TH = 5;
+        await this.DORUN(false, 6700, lNoRun);
+        await this.WAIT(2);
+        this.SETTINGS("OFF", "ON", "I", "ON", "ON", "ON");
+        await this.DORUN(true, 5000, lNoRun); break;
+      case 9:   // CS1 CS2 INTERMIXED with M-BRAKE ON
+        this.SETTINGS("ON", "ON", "I", "ON", "ON", "ON");
+        S.CR_TH = 5;
+        await this.DORUN(false, 6700, lNoRun); break;
+      case 10:  // 'Transfer training' CS1->CS2 with M-BRAKE ON, running longer to watch 'erosion' of CS1
+        this.SETTINGS("ON", "OFF", "I", "ON", "ON", "ON");
+        if (lNoRun) return;
+        S.CR_TH = 5;
+        await this.DORUN(false, 6700, lNoRun);
+        await this.WAIT(2);
+        this.SETTINGS("OFF", "ON", "I", "ON", "ON", "ON");
+        S.STOPLIM = 100;
+        await this.DORUN(true, 4000, lNoRun);
+        await this.WAIT(2);
+        this.SETTINGS("ON", "OFF", "I", "ON", "ON", "ON");
+        S.STOPLIM = 90;
+        await this.DORUN(true, 5000, lNoRun); break;
+      case 11:  // 'Transfer training' CS1->CS2->CS1 with M-BRAKE ON AND Background noise
+        this.SETTINGS("ON", "OFF", "I", "ON", "ON", "ON");
+        S.CR_TH = 5;
+        S.BGN = 5;
+        if (lNoRun) return;
+        await this.DORUN(false, 6700, lNoRun);
+        await this.WAIT(2);
+        this.SETTINGS("OFF", "ON", "I", "ON", "ON", "ON");
+        await this.DORUN(true, 6700, lNoRun);
+        await this.WAIT(2);
+        this.SETTINGS("ON", "OFF", "I", "ON", "ON", "ON");
+        await this.DORUN(true, 6700, lNoRun); break;
+      case 12:  // Interactive mode
+        this.SetAll("Visible", true);
+        this.SetAll("Enabled", true);
+        this.SETTINGS("ON", "ON", "I", "ON", "ON", "ON");
+        await this.DORUN(false, 0, true); break;
+      case 13:  // CS1 CS2 COMPOUNDED with M-BRAKE ON AND Background noise
+        this.SetAll("Visible", true);
+        this.SETTINGS("ON", "ON", "C", "ON", "ON", "ON");
+        S.CR_TH = 5;
+        S.BGN = 5; S.LTD = 0;
+        await this.DORUN(false, 2000, lNoRun); break;
+      case 14:  // Pretraining with CS2 followed by 'simultaneous' COMPOUND training with CS1 and CS2
+        this.SetAll("Visible", true);
+        this.SETTINGS("OFF", "ON", "I", "ON", "ON", "ON");
+        if (lNoRun) return;
+        await this.DORUN(false, 6700, lNoRun);
+        await this.WAIT(2);
+        this.SETTINGS("ON", "ON", "C", "ON", "ON", "ON");
+        S.CR_TH = 30; S.BGN = 5; S.LTD = 0;
+        await this.DORUN(true, 4000, lNoRun); break;
+      default:
+        return;
+    }
+    // (In VFP two DblClicks bring a widened form back to half the screen width.)
+    if (this.Width > this.pnW / 2) this.Width = this.pnW / 2;
+  }
+
+  // -- PROCEDURE SETTINGS ----------------------------------------------------------------------
+  SETTINGS(...c) {
+    for (let nX = 1; nX <= 6; nX++) {
+      const ctl = this.controls["SG_CBU" + nX], cCap = ctl.Caption, cX = c[nX - 1];
+      if (cX.startsWith("O")) {   // SET EXACT OFF: c='O' is true for "ON" and "OFF"
+        ctl.Caption = cCap.slice(0, cCap.lastIndexOf(" ") + 1) + cX;
+        if (nX === 1) this.SG_CBU1.ForeColor = cX === "ON" ? pnRood : pnWit;
+        if (nX === 2) this.SG_CBU2.ForeColor = cX === "ON" ? pnBlauw : pnWit;
+      } else {
+        ctl.Caption = c[2] === "I" ? "INTERMIXED" : "COMPOUNDED";
+        ctl.Tag = ctl.Caption;
+      }
+    }
+  }
+
+  // -- PROCEDURE LOADSPS -----------------------------------------------------------------------
+  LOADSPS() {
+    if (this.SGM.LTP > 0) for (let nX = 1; nX <= 9; nX++) this.controls["SG_SP" + nX].Value = this.SGM[FIELDS[nX - 1]];
+  }
+
+  // -- PROCEDURE DORUN -------------------------------------------------------------------------
+  async DORUN(lCont, nSteps, lNoRun) {
+    if (lNoRun) return;
+    const g = this.g, S = this.SGM, SS = this.SS, SUMSS = this.SUMSS, TERMS = this.TERMS;
+    // INITIALISATION
+    this.pnHOffSet = 80;               // Horizontal offset
+    this.pnVOffSet = 75;               // Vertical offset
+    this.pnDist = 380 / S.NONQTY;      // Distance between NONs
+    this.pnHPosNON = 200;              // Position of NON column
+    this.pnHPosPuC = 315;              // Position of PuC column
+    this.pnRad = 10;                   // radius
+    if (this.SG_CBD1.Caption === "RUN") this.Width = this.pnW / 2;
+    this.LOADSPS();
+    this.SG_CBD2.Enabled = true;
+
+    const N = S.NONQTY;
+    for (let i = 1; i <= 2; i++) while (SS[i].length <= N) SS[i].push(0);   // DIMENSION SS[2,NONQTY]
+    if (!lCont) {   // If it is NOT a 'continuing' of an earlier procedure then we initialize the values
+      this.pnSteps = this.pnStepsTot = 0;
+      for (let nX = 1; nX <= 2; nX++) {
+        SUMSS[nX] = 0; this.SUMSSCR1[nX] = 0; this.SUMSSCR2[nX] = 0;
+        TERMS[nX] = new Array(N + 1).fill(0);
+        for (let nY = 1; nY <= N; nY++) SS[nX][nY] = 0;
+      }
+    }
+    if (!this.plRun) return;
+
+    this.running = true;
+    try {
+      // RENDERING SECTION vvvvvvvv
+      let nK = 0;
+      const nSH = 70, sh = N > 15 ? nSH : 0;
+      const { pnHOffSet, pnVOffSet, pnDist, pnHPosNON, pnHPosPuC, pnRad } = this;
+      g.ForeColor = pnZwart;
+      let nVO = pnVOffSet + pnDist * (N - 1) + 10;
+      g.Print("MFs", (pnHOffSet + pnHPosNON) / 2, nVO + 5);
+      g.Print("NONs", pnHPosNON - pnRad, nVO + 5);
+      g.Print("CFs", (pnHPosNON + pnHPosPuC + sh) / 2 - pnRad / 2, nVO + 5);
+      g.Print("PuCs", pnHPosPuC + sh - pnRad, nVO + 5);
+      nVO = nVO + 60;
+      g.ForeColor = pnRood;
+      g.Line(0, pnVOffSet, pnHOffSet, pnVOffSet);   // Hor MF line
+      g.Print("800 ms", 60, nVO / 2 - 20);
+      g.ForeColor = pnBlauw;
+      g.Line(0, pnVOffSet + pnDist * (N - 1), pnHOffSet, pnVOffSet + pnDist * (N - 1));   // Hor MF line
+      g.Print("400 ms", 14, nVO / 2 + 115);
+      // RENDERING SECTION ^^^^^^^^
+
+      let lCS1 = this.SG_CBU1.Caption === "CS1 ON";
+      const lCS1Mem = lCS1;
+      let lCS2 = this.SG_CBU2.Caption === "CS2 ON";
+      const lCS2Mem = lCS2;
+      const lCPD = this.SG_CBU3.Caption === "COMPOUNDED";
+      if (lCPD) lCS1 = false;
+      this.SG_CBU1.ForeColor = lCS1 ? pnRood : pnWit;
+      this.SG_CBU2.ForeColor = lCS2 ? pnBlauw : pnWit;
+
+      this.pnSatELTP = 10;                                       // the LTP saturation limit of the NON (for all CS input together in 'population view')
+      this.pnSatBLTP = this.pnSatELTP * S.LTP_BR_TH / 100;      // The set threshold above which the LTP brake starts to have effect
+      const nSUMSS_TH = this.pnSatELTP * N * S.CR_TH / 100;
+      const nMax = typeof nSteps === "number" ? nSteps : 100000;
+      this._due = performance.now(); this._lastYield = this._due;
+
+      while (this.pnSteps < nMax) {
+        if (!lCS1 && !lCS2) break;                    // No CS selected
+        if (lCPD) {                                   // Switches CS1=.F./CS2=.T. with CS1=.T./CS2=.F. (therefore CS1 must be =.F. at the start)
+          const lCS = lCS1; lCS1 = lCS2; lCS2 = lCS;
+          this.SG_CBU1.ForeColor = pnRood;
+        } else if (lCS1Mem && lCS2Mem) {              // when 'Intermixed' CS1 and CS2 are chosen at random in equal frequency
+          lCS1 = this.rand() < .5;
+        } else if (lCS1Mem) {                         // Background noise ! lCS1=.T. but in SGM.BGN/100 of cases it is .F. and then lCS2 will be .T.
+          lCS1 = this.rand() < 1 - S.BGN / 100;
+        } else if (lCS2Mem) {                         // Background noise ! lCS2=.T. but in SGM.BGN/100 of cases it is .F. and then lCS1 will be .T.
+          lCS1 = this.rand() < S.BGN / 100;
+        }
+        lCS2 = !lCS1;
+        const nCS = lCS1 ? 1 : 2;
+
+        TERMS[1].fill(0); TERMS[2].fill(0);
+        this.CSALL(nCS, lCPD);
+
+        // RENDERING SECTION vvvvvvvv
+        const nF = (20 / 100) * 20 / N;   // to keep the maximum curve top equally high when different numbers of NONs are displayed
+        nVO = pnVOffSet + pnDist * (N - 1) / 2;
+        if (INT(this.pnSteps / 10) === this.pnSteps / 10) {
+          const nDW = 1, C1 = this.SUMSSCR1, C2 = this.SUMSSCR2;
+          g.ForeColor = g.BackColor;   // Erasing the curves
+          this.GAUSS(nVO - 20, 46, C1[1] * nF, nDW);   // CR by CS1 via timers of CS1 ('tone' with US at 800 ms)
+          this.GAUSS(nVO - 20, 0, C2[1] * nF, nDW);    // CR by CS2 via timers of CS1 ('tone' with US at 800 ms)
+          this.GAUSS(nVO + 115, 0, C2[2] * nF, nDW);   // CR by CS2 via timers of CS2 ('light' with US at 400 ms)
+          this.GAUSS(nVO + 115, 46, C1[2] * nF, nDW);  // CR by CS1 via timers of CS2 ('light' with US at 400 ms)
+          // -20 = curves when testing CS1, +115 = curves when testing CS2; '0' = 400 ms, '46' = 800 ms
+          this.SUM_SSCR(nCS, lCPD);   // Get the new SUMSS values
+          g.ForeColor = pnRood;       // Drawing the curves of CS1 on the basis of the sum of SSs
+          if (lCPD) {
+            // If two CSs "cooperate" in 'compound' we must also check if the individual CS has enough power to activate CFs
+            // since once it does it activates timers of CS1 as well as CS2
+            // and if e.g. CS1 is still very weak it should not activate timers made by CS2
+            if (SUMSS[1] + SUMSS[2] > nSUMSS_TH) {
+              this.GAUSS(nVO - 20, 46, C1[1] * nF, nDW);
+              if (SUMSS[2] > nSUMSS_TH) this.GAUSS(nVO + 115, 46, C1[2] * nF, nDW);
+            }
+            g.ForeColor = pnBlauw;    // Drawing the curves of CS2
+            if (SUMSS[2] + SUMSS[1] > nSUMSS_TH) {
+              this.GAUSS(nVO + 115, 0, C2[2] * nF, nDW);
+              if (SUMSS[1] > nSUMSS_TH) this.GAUSS(nVO - 20, 0, C2[1] * nF, nDW);
+            }
+          } else {
+            this.GAUSS(nVO - 20, 46, C1[1] * nF, nDW);
+            this.GAUSS(nVO + 115, 46, C1[2] * nF, nDW);
+            g.ForeColor = pnBlauw;    // Drawing the curves of CS2
+            this.GAUSS(nVO + 115, 0, C2[2] * nF, nDW);
+            this.GAUSS(nVO - 20, 0, C2[1] * nF, nDW);
+          }
+        }
+
+        this.pnStepFactor = 30;   // determines progression speed of trace and 'beam' on the screen
+        if (this.pnSteps / this.pnStepFactor === INT(this.pnSteps / this.pnStepFactor)) {
+          if (pnHPosPuC + sh + 10 + this.pnSteps / this.pnStepFactor > this.Width - 5) this.Width = this.Width + 1;   // the screen widens
+        }
+        if (pnHPosPuC + sh + 10 + this.pnSteps / this.pnStepFactor > this.pnW) {   // when full screen is attained, restart display
+          g.Cls();
+          this.pnSteps = 0;
+        }
+        this.pnSteps++;
+        this.pnStepsTot++;
+
+        g.ForeColor = pnRood;
+        g.Print("Sum CS1=" + STR(SUMSS[1], 7, 2), 5, pnVOffSet - 15);   // SUM of all CS1 SSs
+        g.Print("CS1 : " + this.nTerms(TERMS[1]) + " terminals  ", 5, pnVOffSet - 25);   // Count of connected CS1 terminals
+        g.ForeColor = pnBlauw;
+        g.Print("Sum CS2=" + STR(SUMSS[2], 7, 2), 5, pnVOffSet + pnDist * (N - 1) + 6);
+        g.Print("CS2 : " + this.nTerms(TERMS[2]) + " terminals  ", 5, pnVOffSet + pnDist * (N - 1) + 16);
+        g.ForeColor = pnZwart;
+        g.Print(this.pnStepsTot + " steps ", 5, pnVOffSet + pnDist * (N - 1) / 2 - 6);   // StepCount
+        // RENDERING SECTION ^^^^^^^^
+
+        await this.DOEVENTS();
+
+        // Ending the procedure
+        const lim = this.pnSUMSS_EUS * S.STOPLIM / 100;
+        const n100 = T => { let n = 0; for (let i = 1; i <= N; i++) if (T[i] === 100) n++; return n; };
+        if (!lCS1Mem || (n100(TERMS[1]) >= N / 2 && SUMSS[1] > lim)) {
+          if (!lCS2Mem || (n100(TERMS[2]) >= N / 2 && SUMSS[2] > lim)) {
+            if (nK === 300) break;   // keep running for 300 steps after ending requirements are fulfilled
+            nK++;
+          }
+        }
+        // Stopping / Interrupting the procedure
+        const v11 = this.SG_SP11.Value;
+        if (v11 > 0 && INT(this.pnSteps / v11) === this.pnSteps / v11) await this.CBD_MouseDown(this.SG_CBD2);   // Stop button
+        if (this.plStop) {
+          this.plStop = false;
+          this.SG_CBD1.Caption = "CONTINUE";
+          break;
+        }
+        // Aborting the procedure
+        if (this.plAbort) {
+          this.SG_CBD1.Caption = "RUN";
+          break;
+        }
+      }
+      for (let nX = 1; nX <= N; nX++) {
+        nVO = pnVOffSet + pnDist * (nX - 1);
+        g.ForeColor = pnRood;
+        this.LINEDRAW(1, SS[1][nX] + 1, true, nVO);   // Erasing
+        if (SS[1][nX] > .1) this.LINEDRAW(1, SS[1][nX], false, nVO);   // Redrawing
+        g.ForeColor = pnBlauw;
+        this.LINEDRAW(2, SS[2][nX] + 1, true, nVO);
+        if (SS[2][nX] > .1) this.LINEDRAW(2, SS[2][nX], false, nVO);
+        // Redrawing of NONs to erase overlying line endings
+        g.DrawWidth = 1;
+        g.FillColor = pnCyaan;
+        g.Circle(pnRad, pnHPosNON, nVO);
+      }
+      this.SetAll("Enabled", true, "SG_SP");
+      this.BEEP();
+      this.flush();
+    } finally {
+      this.running = false;
+    }
+  }
+  // LEN(TERMS)-OCCURS(CHR(0),TERMS)-OCCURS(CHR(1),TERMS): terminals with more than 1 % of the NON's SS
+  nTerms(T) { let n = 0; for (let i = 1; i < T.length; i++) if (T[i] > 1) n++; return n; }
+
+  // -- PROCEDURE CSALL -------------------------------------------------------------------------
+  CSALL(nCS, lCPD) {
+    this.SUM_SS();
+    this.LTPD(nCS, lCPD);
+    this.DEL_TERM();
+    this.ADD_TERM(nCS, lCPD);
+  }
+
+  // US present from beginning, LTPing active synapses, LTDing inactive synapses, geometrically.
+  // PuC timed CRs can only start to develop when individual NONs become able to HP-R IO cells (hence from an LTP threshold on)
+  // US only starts to dwindle when overt CRs appear, i.e. above a threshold of summed SS of the CS
+  //    to disappear gradually above a limit of summed SS
+  // Terminals are supposed to increase with US strength (and stop to do so when US dwindles)
+  //    hence at a constant rate when US stays constant, but it should be much slower than LTP increase.
+  // Terminals 'disengage' when LTP goes under a limit
+  // Terminals also 'disengage' when US strength goes under a limit
+
+  // -- PROCEDURE LTPD --------------------------------------------------------------------------
+  LTPD(nCSP, lCPD) {
+    const g = this.g, S = this.SGM, SS = this.SS, SUMSS = this.SUMSS, TERMS = this.TERMS, N = S.NONQTY;
+    const { pnVOffSet, pnDist, pnHPosNON, pnHPosPuC, pnRad, pnSatELTP, pnSatBLTP } = this;
+    const nCSD = nCSP === 1 ? 2 : 1;   // nCSP refers to the active synapse, nCSD to the inactive one
+    // Rendering settings
+    const nSH = 70, xPuC = pnHPosPuC + (N > 15 ? nSH : 0);
+    g.FillStyle = 0;   // Solid
+    const nCSColor = nCSP === 1 ? pnRood : pnBlauw;
+    g.ForeColor = nCSColor;
+    const brake = this.SG_CBU6.Caption === "METAB.BRAKE ON";
+
+    // Calculations per NON
+    for (let nX = 1; nX <= N; nX++) {
+      const nMemSSP = SS[nCSP][nX], nMemSSD = SS[nCSD][nX];
+      // Calculation of LTP on the active synapse
+      let nSS12 = SS[1][nX] + SS[2][nX];   // the sum of the two synapses on the NON
+      let nUS_Brake, nLTP_Brake;
+      if (lCPD) {   // In case of 'compound' CS1 and CS2 training
+        this.pnSUMSS_EUS = pnSatELTP * N / 2;   // at this value of SUMSS the US is neutralized by negative feedback from the CR
+        this.pnSUMSS_BUS = S.CR_TH;             // at this value of SUMSS (of active synapses) the US starts to be subdued by an upcoming CR
+        // When SGM.CR_TH is set low a long period of double peaks appears, if set high they may not appear at all
+        nUS_Brake = (SUMSS[1] + SUMSS[2] - this.pnSUMSS_BUS) / (this.pnSUMSS_EUS - this.pnSUMSS_BUS);
+        nUS_Brake = this.pnSUMSS_EUS * (SUMSS[1] + SUMSS[2] < this.pnSUMSS_BUS ? 1 : 1 - nUS_Brake);
+        // Range 0 to 1, is inverse parameter of US strength; depends on the strength of ALL ACTIVE synapses;
+        // effect starts to show when SUMSS=>pnSUMSS_BUS
+        nLTP_Brake = (nSS12 - pnSatBLTP) / (pnSatELTP - pnSatBLTP);
+        nLTP_Brake = pnSatELTP * (nSS12 < pnSatBLTP ? 1 : 1 - nLTP_Brake);
+        SS[1][nX] = SS[1][nX] * (1 + SS[1][nX] * S.LTP * nLTP_Brake * nUS_Brake * (this.rand() * S.RAND / 10 + .5) / 10000);
+        SS[2][nX] = SS[2][nX] * (1 + SS[2][nX] * S.LTP * nLTP_Brake * nUS_Brake * (this.rand() * S.RAND / 10 + .5) / 10000);
+      } else {      // In case of 'intermixed' CS1 and CS2 training
+        this.pnSUMSS_EUS = pnSatELTP * N / 2;
+        this.pnSUMSS_BUS = S.CR_TH;
+        nUS_Brake = (SUMSS[nCSP] - this.pnSUMSS_BUS) / (this.pnSUMSS_EUS - this.pnSUMSS_BUS);
+        nUS_Brake = this.pnSUMSS_EUS * (SUMSS[nCSP] < this.pnSUMSS_BUS ? 1 : 1 - nUS_Brake);
+        const nSS = brake ? nSS12 : SS[nCSP][nX];
+        nLTP_Brake = (nSS - pnSatBLTP) / (pnSatELTP - pnSatBLTP);
+        nLTP_Brake = pnSatELTP * (nSS < pnSatBLTP ? 1 : 1 - nLTP_Brake);
+        SS[nCSP][nX] = SS[nCSP][nX] * (1 + SS[nCSP][nX] * S.LTP * nLTP_Brake * nUS_Brake * (this.rand() * S.RAND / 10 + .5) / 10000);
+      }
+      SS[nCSP][nX] = Math.max(0, SS[nCSP][nX]);   // protect against negative undershoots
+      // LTP is a function of actual ACTIVE SS, LTP gain, distance to LTP saturation, US strength (dwindles above CR-TH), and a random factor
+
+      // Calculation of LTD on the inactive synapse (when 'compounded' there is NO LTD !!)
+      if (!lCPD) {
+        SS[nCSD][nX] = SS[nCSD][nX] * (1 - Math.min(1, SS[nCSP][nX] * S.LTD * (this.rand() * S.RAND / 10 + .5) / 100));
+        // LTD is a function of actual INACTIVE CS, LTD gain,
+        // but also of actual ACTIVE SS (and hence also of all factors determining LTP), and a random factor
+        SS[nCSD][nX] = Math.max(0, SS[nCSD][nX]);
+      }
+      nSS12 = SS[1][nX] + SS[2][nX];
+
+      // To keep track in how far each 'terminal' is saturated (i.e. when = 100, and all active terminals saturated, the process can stop)
+      if (nSS12 > 0) {
+        TERMS[nCSP][nX] = INT(SS[nCSP][nX] * 100 / nSS12);
+        TERMS[nCSD][nX] = INT(SS[nCSD][nX] * 100 / nSS12);
+      }
+
+      // RENDERING SECTION vvvvvvvv
+      // erasing of active MF-NON lines and redrawing them when the width changed
+      const nVO = pnVOffSet + pnDist * (nX - 1);
+      const p = this.pnSteps;
+      if (INT(nMemSSP) !== INT(SS[nCSP][nX]) || nMemSSP < 1 || p < 100 || INT(p / 100) === p / 100) {
+        if (nMemSSP > 0.05) this.LINEDRAW(nCSP, nMemSSP + 2, true, nVO);   // Erasing (0 leaves erased stripes, 1 leaves colour lines of 1, .05 solves it)
+        this.LINEDRAW(nCSP, SS[nCSP][nX], false, nVO);   // Redrawing
+      }
+      // erasing of inactive MF-NON lines and redrawing them when the width changed
+      if (INT(nMemSSD) !== INT(SS[nCSD][nX]) || nMemSSD < 1 || p < 100 || INT(p / 100) === p / 100) {
+        if (nMemSSD > 0.05) this.LINEDRAW(nCSD, nMemSSD + 2, true, nVO);   // Erasing
+        this.LINEDRAW(nCSD, SS[nCSD][nX], false, nVO);   // Redrawing
+      }
+      // Relative and absolute values of CS1-SS and CS2-SS
+      if (N <= 26) {
+        const t1 = STR(SS[1][nX] * 100 / nSS12, 4) + " CS1=" + STR(SS[1][nX], 7, 3) + " ";
+        const t2 = STR(SS[2][nX] * 100 / nSS12, 4) + " CS2=" + STR(SS[2][nX], 7, 3) + " ";
+        if (N > 15) {
+          g.ForeColor = pnRood; g.Print(t1, pnHPosNON + 7, nVO - 8 - 4);          // Figures above the horizontal NON-PuC line
+          g.ForeColor = pnBlauw; g.Print(t2, pnHPosNON + 17 + nSH, nVO - 8 - 4);  // Figures above the horizontal NON-PuC line
+        } else {
+          g.ForeColor = pnRood; g.Print(t1, pnHPosNON + 12, nVO - 8 - 5);         // Figures above the horizontal NON-PuC line
+          g.ForeColor = pnBlauw; g.Print(t2, pnHPosNON + 12, nVO + 8 - 4);        // Figures under the horizontal NON-PuC line
+        }
+      }
+      // Erasing the horizontal line between NON and PuC
+      g.ForeColor = g.BackColor;
+      g.DrawWidth = 5;
+      g.Line(pnHPosNON, nVO, xPuC, nVO);
+      // Redrawing the horizontal line between NON and PuC
+      const nMixColor = RGB(255 * SS[1][nX] / nSS12, 0, 255 * SS[2][nX] / nSS12);   // Mixed colour of the horizontal line
+      if (nMixColor > 0) {
+        g.ForeColor = nMixColor;
+        g.DrawWidth = nSS12 > Math.abs(S.CR_TH) / 10 ? 5 : 1;   // Line width of the horizontal line
+        // The maximum of nSS12 is 20 (2 synapses of max 10 when saturated); SGM.CR_TH/10 goes from 0 to 10.
+        // CR-TH is used here as the threshold above which CF firing starts, while elsewhere it is used as
+        // the threshold above which the CR starts to appear.  The thickening of the line is 'cosmetic' and the
+        // CF threshold is of no further consequence in the calculation because a higher CR threshold follows.
+        // It would complicate needlessly the calculation to implement a 'two-stage threshold'.
+        g.Line(pnHPosNON, nVO, xPuC, nVO);
+        g.DrawWidth = 1;
+        g.FillColor = nMixColor;
+        g.Circle(pnRad, xPuC, nVO);   // draws a full circle PuC of the same colour as the NON-PuC line
+      }
+      // Beam progress
+      if (this.SG_CBU5.Caption === "BEAM ON") {
+        g.ForeColor = nMixColor;
+        g.DrawWidth = 1;
+        if (nSS12 > Math.abs(S.CR_TH) / 10 && nMixColor > 0) {
+          const x = xPuC + 10 + p / this.pnStepFactor;   // with more than 15 NONs the distance NON-PuC widens by nSH
+          g.Line(x, nVO - pnDist / 2, x, nVO + pnDist / 2 + 1);
+        }
+      }
+      // Trace progress
+      if (this.SG_CBU4.Caption === "TRACE ON" && SS[nCSP][nX] > 0) {
+        g.ForeColor = nCSColor;
+        g.DrawWidth = 1;
+        g.PSet(xPuC + 9 + p / this.pnStepFactor, nVO + 1 - (20 / N) * SS[nCSP][nX]);
+      }
+      // Redrawing of NONs to erase overlying line endings
+      g.FillColor = pnCyaan;
+      g.Circle(pnRad, pnHPosNON, nVO);
+      // RENDERING SECTION ^^^^^^^^
+    }
+  }
+
+  // -- PROCEDURE SUM_SS ------------------------------------------------------------------------
+  SUM_SS() {
+    const SS = this.SS, N = this.SGM.NONQTY;
+    this.SUMSS[1] = 0; this.SUMSS[2] = 0;
+    for (let nX = 1; nX <= N; nX++) { this.SUMSS[1] += SS[1][nX]; this.SUMSS[2] += SS[2][nX]; }
+  }
+
+  // -- PROCEDURE SUM_SSCR: has to represent the CRs when testing is done for CS1 or CS2 ALONE !!! --
+  SUM_SSCR(nCS, lCPD) {
+    const SS = this.SS, N = this.SGM.NONQTY, C1 = this.SUMSSCR1, C2 = this.SUMSSCR2;
+    C1[1] = C1[2] = C2[1] = C2[2] = 0;
+    // Calculation of CR strength.  It is assumed that the (eventually combined) SS of the NON determines the
+    // strength of CF firing, and that this in turn determines the strength of HP in the PuC (by the number of
+    // activated timers) (the two-stage threshold), and hence 'activating CF' means 'activating the CR'.
+    const nSS_TH = this.pnSatELTP * this.SGM.CR_TH / 100;
+    if (lCPD) {
+      // The upper peaks show the CR components of CS1 and CS2 that will fuse when tested for T (displaying an acceleration effect)
+      // The lower peaks show the CR components of CS1 and CS2 that will fuse when tested for L (displaying a deceleration effect)
+      // However, the demo setup only shows the nanoloop population that has to be 'segregated'.
+      // In vivo, there will be other nanoloop populations which from the start on are CS1 only or CS2 only
+      // and these components have to be added to complete the final picture
+      for (let nX = 1; nX <= N; nX++) {
+        const nSS12 = SS[1][nX] + SS[2][nX];
+        if (nSS12 > nSS_TH) {   // CS1 + CS2 strong enough to trigger the CF-PuC-CR chain
+          C1[1] += SS[1][nX]; C2[1] += SS[2][nX];   // SS gives a measure of how many timers were produced by CS1 / CS2
+          C1[2] += SS[1][nX]; C2[2] += SS[2][nX];
+        }
+      }
+    } else {
+      for (let nX = 1; nX <= N; nX++) {
+        if (SS[1][nX] > nSS_TH) {   // CS1 strong enough to trigger the CF-PuC-CR chain
+          // Only the SSs of nanoloops that can trigger a CF are included for the summing
+          C1[1] += SS[1][nX];   // timers produced by CS1 (CS1 U 800)
+          C2[1] += SS[2][nX];   // timers produced by CS2 (CS2 U 400)
+        }
+        if (SS[2][nX] > nSS_TH) {   // CS2 strong enough to trigger the CF-PuC-CR chain
+          C2[2] += SS[2][nX];   // timers produced by CS2 (CS2 D 400)
+          C1[2] += SS[1][nX];   // timers produced by CS1 (CS1 D 800)
+        }
+      }
+    }
+    // The result gives strengths for four 'CR curves': two for activation by CS1 and two for activation by CS2.
+    // If CS1 and CS2 differ in ISI relative to the US, the components are executed after the specific ISI (400 or 800 ms).
+  }
+
+  // -- PROCEDURE DEL_TERM ----------------------------------------------------------------------
+  DEL_TERM() {
+    const SS = this.SS, N = this.SGM.NONQTY;
+    for (let nX = 1; nX <= N; nX++) {
+      const nVO = this.pnVOffSet + this.pnDist * (nX - 1);
+      // When the terminal strength drops below .1 it is 'released': at 0 it is no longer sensitive to LTP
+      if (SS[1][nX] < .1 && SS[1][nX] > 0) { SS[1][nX] = 0; this.LINEDRAW(1, 1, true, nVO); }   // erase MF-NON line
+      if (SS[2][nX] < .1 && SS[2][nX] > 0) { SS[2][nX] = 0; this.LINEDRAW(2, 1, true, nVO); }
+    }
+  }
+
+  // -- PROCEDURE ADD_TERM ----------------------------------------------------------------------
+  ADD_TERM(nCS, lCPD) {
+    const S = this.SGM, SS = this.SS, SUMSS = this.SUMSS, N = S.NONQTY;
+    const nCSD = nCS === 1 ? 2 : 1;
+    const brake = this.SG_CBU6.Caption === "METAB.BRAKE ON";
+    let nUS_Brake = 0, nSS12 = 0, nTR;
+    for (let nX = 1; nX <= N; nX++) {
+      if (lCPD) {
+        if (brake) nSS12 = (SS[1][nX] + SS[2][nX]) / 10;
+        // SS range 0 to 10, is parameter for LTP strength: the more SS approaches LTPMAX (lim=10) the smaller
+        // the chance to make a connection; both active and inactive SS values are combined now
+        if (SS[1][nX] === 0 && SUMSS[1] < this.pnSUMSS_EUS) {   // no connection, and not yet saturation of all lines
+          nUS_Brake = 0;   // Range 0 to 1, is inverse parameter of US strength
+          nTR = S.INICHANCE + 5000 * nUS_Brake + 5000 * nSS12;
+          const r = this.rand() * nTR * S.RAND / 10;
+          if (r >= 0 && r <= 1) SS[1][nX] = .1;   // When set = 0.1 'sensitivity' for LTP returns
+        }
+        if (SS[2][nX] === 0 && SUMSS[2] < this.pnSUMSS_EUS) {
+          nUS_Brake = 0;
+          nTR = S.INICHANCE + 5000 * nUS_Brake + 5000 * nSS12;
+          const r = this.rand() * nTR * S.RAND / 10;
+          if (r >= 0 && r <= 1) SS[2][nX] = .1;
+        }
+      } else {
+        if (SS[nCS][nX] === 0 && SUMSS[nCS] < this.pnSUMSS_EUS) {   // no connection, and not yet saturation of all lines
+          nUS_Brake = 0;   // Range 0 to 1, is inverse parameter of US strength
+          if (brake) nSS12 = (SS[nCS][nX] + SS[nCSD][nX]) / 10;
+          nTR = S.INICHANCE + 5000 * nUS_Brake + 5000 * nSS12;
+          const r = this.rand() * nTR * S.RAND / 10;
+          if (r >= 0 && r <= 1) SS[nCS][nX] = .1;   // When set = 0.1 'sensitivity' for LTP returns
+        }
+      }
+    }
+  }
+
+  // -- PROCEDURE LINEDRAW ----------------------------------------------------------------------
+  LINEDRAW(nCS, nW, lWis, nV) {
+    const g = this.g;
+    g.ForeColor = lWis ? g.BackColor : (nCS === 1 ? pnRood : pnBlauw);
+    g.DrawWidthV = nW;
+    if (nW > 0.05) {
+      if (nW < 1) { g.DrawStyle = 2; g.DrawWidth = 1; }
+      g.Line(this.pnHOffSet, this.pnVOffSet + this.pnDist * (nCS === 1 ? 0 : this.SGM.NONQTY - 1), this.pnHPosNON - this.pnRad, nV);   // Line from MF to NON
+      g.DrawStyle = 0;
+    }
+  }
+
+  // -- PROCEDURE GAUSS -------------------------------------------------------------------------
+  GAUSS(nVOffSet, nHOffSet, nHeight, nDW) {
+    const g = this.g;
+    g.DrawWidth = nDW;
+    const nHeight2 = 20, nWidth = 16, nTopHOffSet = 26;
+    for (let nX = 1; nX <= 50; nX++) {
+      const nS = INT(4 + nHeight * (INT(nHeight2 / 7) + 1) * Math.E ** (((-4 * Math.log(2)) * (nX - nTopHOffSet) ** 2) / nWidth ** 2));
+      g.PSet(nX + nHOffSet, nVOffSet - nS);
+    }
+  }
+
+  // -- Events ----------------------------------------------------------------------------------
+  CBU_Click(ctl) {   // SG_CBU.Click
+    const cCap = ctl.Caption;
+    if (cCap.includes("CS1")) {
+      ctl.Caption = ctl.Caption === "CS1 ON" ? "CS1 OFF" : "CS1 ON";
+      ctl.ForeColor = ctl.Caption === "CS1 ON" ? pnRood : pnWit;
+    } else if (cCap.includes("CS2")) {
+      ctl.Caption = ctl.Caption === "CS2 ON" ? "CS2 OFF" : "CS2 ON";
+      ctl.ForeColor = ctl.Caption === "CS2 ON" ? pnBlauw : pnWit;
+    } else if (ctl.Tag.includes("INTERMIXED")) {
+      ctl.Caption = "COMPOUNDED"; ctl.Tag = ctl.Caption;
+      this.SG_SP3.Value = 0;
+    } else if (ctl.Tag.includes("COMPOUNDED")) {
+      ctl.Caption = "INTERMIXED"; ctl.Tag = ctl.Caption;
+      if (this.SG_SP3.Value === 0) this.SG_SP3.Value = .1;
+    } else if (cCap.includes("TRACE")) {
+      ctl.Caption = ctl.Caption === "TRACE ON" ? "TRACE OFF" : "TRACE ON";
+    } else if (cCap.includes("BEAM")) {
+      ctl.Caption = ctl.Caption === "BEAM ON" ? "BEAM OFF" : "BEAM ON";
+    } else if (cCap.includes("METAB")) {
+      ctl.Caption = ctl.Caption === "METAB.BRAKE ON" ? "METAB.BRAKE OFF" : "METAB.BRAKE ON";
+    }
+    if (this.SG_CBU1.Caption.includes("ON") && this.SG_CBU2.Caption.includes("ON")) {
+      this.SG_CBU3.Enabled = true;
+      this.SG_CBU3.Caption = this.SG_CBU3.Tag;
+    } else {
+      this.SG_CBU3.Enabled = false;
+      this.SG_CBU3.Caption = "---";
+    }
+    this.flush();
+  }
+
+  async CBD_MouseDown(ctl) {   // SG_CBD.MouseDown
+    this.commitSpinners();
+    this.SetAll("ForeColor", pnZwart, "SG_CBD");
+    const cCap = ctl.Caption;
+    this.plRun = this.plAbort = false;
+    if (cCap === "RUN") {
+      if (this.running) return;
+      this.SetAll("Enabled", false, "SG_SP");
+      this.SG_CBD2.Enabled = true;
+      this.SG_CBD2.Caption = "STOP";
+      this.plRun = true;
+      this.g.Cls();
+      if (this.SG_SP10.Value === 0) await this.DORUN(false);
+      else { this.pcCMD = LTSTR(this.SG_SP10.Value); await this.DEMO(); }
+    } else if (cCap === "STOP") {
+      this.plStop = true;
+      this.SG_CBD1.Caption = "CONTINUE";
+    } else if (cCap === "CONTINUE") {
+      if (this.running) return;
+      this.plRun = true;
+      this.plStop = false;
+      await this.DORUN(true);
+    } else if (cCap === "ABORT") {
+      this.SG_CBD2.Enabled = false;
+      this.SetAll("Enabled", true, "SG_SP");
+      this.plAbort = true;
+      this.SG_CBD1.Caption = "RUN";
+    }
+    this.flush();
+  }
+
+  SP10_UpClick() {   // SG_SP10.UpClick / DownClick: sets the demo values for demo x
+    this.SG_CBD1.Caption = "RUN";
+    this.pcCMD = LTSTR(this.SG_SP10.Value);
+    this.SG_SP10.ToolTipText = SP10_TIPS[this.SG_SP10.Value] || "";
+    this.DEMO(true).catch(e => { if (e !== STOPPED) throw e; });
+    this.flush();
+  }
+}
+
+// PROCEDURE TTText: tooltip of the Demo spinner
+const SP10_TIPS = [null,
+  "Presentation of demo components.",
+  "Showing thickening lines.",
+  "Showing Gauss curves.",
+  "Complete run, intermixed, trace off, showing the segregation process.",
+  "Trace divergence demo with 10 NONs, random function enabled.",
+  "Trace divergence demo with 10 NONs, random function disabled.",
+  "'Transfer training' CS1->CS2->CS1 with M-BRAKE OFF.",
+  "'Transfer training' CS1->CS2 with M-BRAKE ON.",
+  "CS1 CS2 INTERMIXED with M-BRAKE ON.",
+  "'Transfer training' CS1->CS2->CS1 with M-BRAKE ON," + pcCR + "running longer to watch 'erosion' of CS1," + pcCR +
+    "and quick resurgence of CS1 when activated again.",
+  "'Transfer training' CS1->CS2->CS1 with M-BRAKE ON AND background noise.",
+  "Interactive mode.",
+  "CS1 CS2 COMPOUNDED with M-BRAKE ON AND Background noise.",
+  "Blocking of CS1 after full training with CS2."];
+
+// ---------------------------------------------------------------------------------------------
+// Demo panel (one button per pcCMD demo, as with 'DO segreg WITH .T.,"n"') + playback speed.
+// Figures and page numbers according to the Zenodo version of the article (doi:10.5281/zenodo.17584844):
+// page number = the number printed at the bottom of the page.
+// ---------------------------------------------------------------------------------------------
+const DEMOS = [
+  ["1", "Demo 1 · Fig. 1, p. 14\nComponents of the demo",
+   "Presentation of the demo components: the start of a run (100 steps).\nArticle: Fig. 1, page 14."],
+  ["2", "Demo 2 · Fig. 2, p. 15\nThickening lines",
+   "MF-NON lines thicken by LTP and the CF lines thicken when CFs start to fire (345 steps).\nArticle: Fig. 2, page 15."],
+  ["3", "Demo 3 · Fig. 3, p. 15\nCR curves (double peaks)",
+   "The CR 'Gaussians' appear: both CSs trigger each other's CRs, the double peaks phenomenon (500 steps).\nArticle: Fig. 3, page 15."],
+  ["4", "Demo 4 · Figs. 4, 5, p. 16\nComplete segregation run",
+   "Complete run, intermixed, trace off: the slow segregation of CS1 and CS2 onto different nanoloops.\nArticle: Figs. 4 and 5, page 16."],
+  ["5", "Demo 5 · Fig. 6, p. 18\nTraces, random factor on",
+   "Trace divergence with 10 NONs, random factor enabled: the traces diverge.\nArticle: Fig. 6, page 18."],
+  ["6", "Demo 6 · Fig. 6, p. 18\nTraces, random factor off",
+   "Trace divergence with 10 NONs, random factor disabled: no segregation, double peaks persist.\nArticle: Fig. 6, page 18."],
+  ["7", "Demo 7 · Fig. 7, p. 19\nTransfer CS1>CS2>CS1",
+   "'Transfer training' CS1 -> CS2 -> CS1 with the metabolic brake OFF: each time a complete takeover.\nArticle: Fig. 7, page 19."],
+  ["8", "Demo 8 · Fig. 8a, p. 20\nTransfer, metab. brake on",
+   "'Transfer training' CS1 -> CS2 with the metabolic brake ON: CS2 only about halves the CR power of CS1.\nArticle: Fig. 8a, page 20."],
+  ["9", "Demo 9 · Figs. 8b, 8c, p. 20\nIntermixed, metab. brake on",
+   "CS1 and CS2 intermixed with the metabolic brake ON: the transient double peaks are preserved.\nArticle: Figs. 8b and 8c, page 20."],
+  ["10", "Demo 10 · text, p. 20\nErosion of CS1",
+   "'Transfer training' CS1 -> CS2 -> CS1 with the metabolic brake ON, running longer to watch the 'erosion' of CS1, " +
+   "and the quick resurgence of CS1 when activated again.\nArticle: text on page 20 (no figure)."],
+  ["11", "Demo 11 · text, p. 20\nTransfer + background noise",
+   "'Transfer training' CS1 -> CS2 -> CS1 with the metabolic brake ON and background noise: no more erosion.\nArticle: text on page 20 (no figure)."],
+  ["12", "Demo 12\nInteractive mode",
+   "All controls visible; set the parameters (or a demo number) and click RUN.\nThe screenshots in the article were taken in this mode."],
+  ["13", "Demo 13 (not in the article)\nCompounded + noise",
+   "CS1 and CS2 COMPOUNDED with the metabolic brake ON and background noise.\nNot shown in the article."],
+  ["14", "Demo 14 (not in the article)\nCS2, then compound",
+   "Pretraining with CS2 followed by 'simultaneous' COMPOUND training with CS1 and CS2 (blocking).\nNot shown in the article."],
+  ["", "Normal mode (restart)",
+   "Restarts the program in its normal mode (not called with a demo parameter)."],
+];
+const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
+
+class Shell {
+  constructor(stage, seed, speed) {
+    this.stage = stage; this.seed = seed; this.speed = speed;
+    this.app = null; this.current = "";
+  }
+  start(demo) {
+    if (this.app) this.app.stop();
+    this.stage.innerHTML = "";
+    this.current = demo;
+    // Demo 12 was called in 'interactive' mode in the article ("12I"): all controls stay visible.
+    this.app = new Segreg(this.stage, { plCalled: !!demo, pcCMD: demo, plIA: demo === "12", seed: this.seed });
+    this.app.speed = this.speed;
+    this.app.onWidth = w => this.layout(w);
+    this.buildPanel();
+    this.layout(this.app.Width);
+    this.updateUrl();
+    setTimeout(() => this.app.activate(), 50);
+  }
+  layout(w) {
+    this.formW = w;
+    this.stage.style.width = (w + PANEL_W) + "px";
+    if (this.panelEls) for (const [e, l] of this.panelEls) e.style.left = (w + l) + "px";
+    fit();
+  }
+  updateUrl() {
+    const p = new URLSearchParams(location.search);
+    if (this.current) p.set("demo", this.current); else p.delete("demo");
+    if (this.speed !== 1) p.set("speed", String(this.speed)); else p.delete("speed");
+    const q = p.toString();
+    try { history.replaceState(null, "", location.pathname + (q ? "?" + q : "")); } catch (e) { /* file:// */ }
+  }
+  el(tag, cls, l, t, w, h, text, tip) {
+    const e = document.createElement(tag);
+    e.className = "ctl " + cls;
+    Object.assign(e.style, { top: t + "px", width: w + "px", height: h + "px" });
+    if (text !== undefined) e.textContent = text;
+    if (tip) e.title = tip;
+    this.stage.appendChild(e);
+    this.panelEls.push([e, l]);
+    return e;
+  }
+  buildPanel() {
+    this.panelEls = [];
+    const left = 6, n = DEMOS.length, top0 = 6, gap = 3, speedH = 52;
+    const h = (PNH - top0 - 6 - speedH - gap * (n - 1)) / n;
+    DEMOS.forEach(([cmd, cap, tip], i) => {
+      const b = this.el("button", "panel" + (cmd === this.current ? " on" : ""), left, top0 + i * (h + gap), PANEL_W - 10, h, cap, tip);
+      b.tabIndex = -1;
+      b.addEventListener("click", () => {
+        gcCount(cmd ? "demo-" + cmd : "normal-mode", cmd ? "Demo " + cmd + " (panel)" : "Normal mode (panel)");
+        this.start(cmd);
+      });
+    });
+    const y0 = top0 + n * (h + gap) + 2;
+    this.el("div", "speedlbl", left, y0, PANEL_W - 10, 14, "Speed",
+      "Playback speed of runs and demos, as with a video player.\n" +
+      "1x is the speed of the original program in Visual FoxPro 9.\n" +
+      "Can be changed while a run is executing.");
+    const bw = (PANEL_W - 10) / 3;
+    this.speedButtons = new Map();
+    SPEEDS.forEach((sp, k) => {
+      const b = this.el("button", "panel", left + (k % 3) * bw, y0 + 15 + Math.floor(k / 3) * 18, bw - 2, 17,
+                        String(sp).replace(".", ",") + "×");
+      b.tabIndex = -1;
+      b.addEventListener("click", () => this.setSpeed(sp));
+      this.speedButtons.set(sp, b);
+    });
+    this.markSpeed();
+  }
+  setSpeed(sp) { this.speed = sp; this.app.speed = sp; this.markSpeed(); this.updateUrl(); }
+  markSpeed() { for (const [sp, b] of this.speedButtons) b.classList.toggle("on", sp === this.speed); }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Start-up
+// ---------------------------------------------------------------------------------------------
+const stage = document.getElementById("stage");
+let shell = null;
+function fit() {
+  const W = (shell && shell.formW ? shell.formW : PNW / 2) + PANEL_W;
+  let k = Math.min(window.innerWidth / W, window.innerHeight / PNH);
+  if (k > 0.96 && k < 1.04) k = 1;   // nearly actual size: do not rescale (keeps 1-pixel lines sharp)
+  stage.style.transform = "scale(" + k + ")";
+  stage.style.left = Math.max(0, (window.innerWidth - W * k) / 2) + "px";
+  stage.style.top = Math.max(0, (window.innerHeight - PNH * k) / 2) + "px";
+}
+window.addEventListener("resize", fit);
+
+const params = new URLSearchParams(location.search);
+let demo = params.get("demo") || "";
+if (!/^([1-9]|1[0-4])$/.test(demo)) demo = "";
+let speed = parseFloat(params.get("speed") || "1");
+if (!(speed > 0)) speed = 1;
+speed = Math.min(16, Math.max(0.25, speed));
+const seedParam = params.get("seed");
+shell = new Shell(stage, seedParam !== null && /^\d+$/.test(seedParam) ? parseInt(seedParam, 10) : null, speed);
+window.segreg = shell;   // for inspection in the browser console
+
+// ---------------------------------------------------------------------------------------------
+// Tooltips on touch screens: press and hold a control (about half a second) to see its explanation.
+// The control does not act after such a long press; a normal tap works as usual.
+// ---------------------------------------------------------------------------------------------
+let lastPointerType = "mouse";
+
+// GoatCounter: count a page view or an event; waits briefly for the (async) counter script.
+// Blocked or unavailable counters (ad blockers, offline, localhost) are silently ignored.
+function gcCount(path, title, event = true, tries = 0) {
+  const gc = window.goatcounter;
+  if (gc && typeof gc.count === "function") {
+    try { gc.count({ path: path, title: title, event: event }); } catch (e) { /* ignore */ }
+  } else if (tries < 20) {
+    setTimeout(() => gcCount(path, title, event, tries + 1), 500);
+  }
+}
+const tipBox = document.createElement("div");
+tipBox.id = "tip";
+document.body.appendChild(tipBox);
+let lpTimer = null, lpFired = false, lpStart = null, tipHide = null;
+function hideTip() { tipBox.style.display = "none"; clearTimeout(tipHide); }
+function showTip(el) {
+  tipBox.textContent = el.title;
+  tipBox.style.display = "block";
+  const r = el.getBoundingClientRect(), tw = tipBox.offsetWidth, th = tipBox.offsetHeight;
+  let x = Math.min(Math.max(4, r.left + r.width / 2 - tw / 2), window.innerWidth - tw - 4);
+  let y = r.bottom + 6;
+  if (y + th > window.innerHeight - 4) y = Math.max(4, r.top - th - 6);
+  tipBox.style.left = x + "px"; tipBox.style.top = y + "px";
+  clearTimeout(tipHide); tipHide = setTimeout(hideTip, 10000);
+}
+function cancelLongPress() { clearTimeout(lpTimer); lpTimer = null; }
+document.addEventListener("pointerdown", e => {
+  lastPointerType = e.pointerType;
+  hideTip();
+  if (e.pointerType !== "touch") return;
+  const el = e.target.closest("[title]");
+  if (!el || !el.title) return;
+  lpFired = false; lpStart = [e.clientX, e.clientY];
+  lpTimer = setTimeout(() => { lpTimer = null; lpFired = true; showTip(el); }, 500);
+}, true);
+document.addEventListener("pointermove", e => {
+  if (lpTimer && Math.hypot(e.clientX - lpStart[0], e.clientY - lpStart[1]) > 10) cancelLongPress();
+}, true);
+document.addEventListener("pointerup", cancelLongPress, true);
+document.addEventListener("pointercancel", cancelLongPress, true);
+document.addEventListener("click", e => {   // a long press is not a click
+  if (lpFired) { lpFired = false; e.stopPropagation(); e.preventDefault(); }
+}, true);
+document.addEventListener("contextmenu", e => { if (lastPointerType === "touch") e.preventDefault(); });
+
+document.addEventListener("keydown", e => {
+  if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
+  if (shell.app) shell.app.keys++;
+});
+shell.start(demo);
+// count the page opening once, with the demo link that was used (e.g. from the article)
+gcCount(location.pathname + (demo ? "?demo=" + demo : ""), "SEGREG" + (demo ? " - demo " + demo : ""), false);
+</script>
+</body>
+</html>
