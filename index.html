@@ -1257,7 +1257,7 @@ class Shell {
     if (this.current) p.set("demo", this.current); else p.delete("demo");
     if (this.speed !== 1) p.set("speed", String(this.speed)); else p.delete("speed");
     const q = p.toString();
-    try { history.replaceState(null, "", location.pathname + (q ? "?" + q : "")); } catch (e) { /* file:// */ }
+    try { history.replaceState(null, "", location.pathname + (q ? "?" + q : "") + location.hash); } catch (e) { /* file:// */ }
   }
   el(tag, cls, l, t, w, h, text, tip) {
     const e = document.createElement(tag);
