@@ -38,7 +38,7 @@ Deliberate differences from VFP:
 
 Usage:
   python segreg.py                 normal mode
-  python segreg.py --demo 7        demo mode (pcCMD = "1".."14")
+  python segreg.py --demo 7        demo mode (pcCMD = "1".."12")
   python segreg.py --speed 0.5     half speed
   python segreg.py --seed 123      reproducible run
 """
@@ -793,7 +793,7 @@ class Segreg:
                 "Interrupts the run every x steps, click on CONTINUE to resume."]
         #       NONQTY  LTP   LTD   CR_TH  LTP_BR_TH  RAND  BGN  INICHANCE  STOPLIM  Demo nr  RunSteps
         LOW = [0, 6,    0.1,  0.0,  0,     0,         0.0,  0,   0,         10,      0,       0]
-        HIGH = [0, 100, 5,    5,    99,    100,       10.0, 100, 5000,      100,     14,      500]
+        HIGH = [0, 100, 5,    5,    99,    100,       10.0, 100, 5000,      100,     11,      500]
         INC = [0, 2,    0.1,  0.1,  1,     1,         0.1,  1,   10,        1,       1,       10]
         for nX in range(1, 12):
             w = (pnW / 2) / 11
@@ -1545,19 +1545,12 @@ DEMOS = [
     ("10", "Demo 10 \u00b7 text, p. 20\nErosion of CS1",
      "'Transfer training' CS1 -> CS2 -> CS1 with the metabolic brake ON, running longer to watch the 'erosion' "
      "of CS1, and the quick resurgence of CS1 when activated again.\nArticle: text on page 20 (no figure)."),
-    ("11", "Demo 11 \u00b7 text, p. 20\nTransfer + background noise",
+    ("11", "Demo 11 \u00b7 text, p. 20\nWith background noise",
      "'Transfer training' CS1 -> CS2 -> CS1 with the metabolic brake ON and background noise: no more erosion.\n"
      "Article: text on page 20 (no figure)."),
     ("12", "Demo 12\nInteractive mode",
      "All controls visible; set the parameters (or a demo number) and click RUN.\n"
      "The screenshots in the article were taken in this mode."),
-    ("13", "Demo 13 (not in the article)\nCompounded + noise",
-     "CS1 and CS2 COMPOUNDED with the metabolic brake ON and background noise.\nNot shown in the article."),
-    ("14", "Demo 14 (not in the article)\nCS2, then compound",
-     "Pretraining with CS2 followed by 'simultaneous' COMPOUND training with CS1 and CS2 (blocking).\n"
-     "Not shown in the article."),
-    ("", "Normal mode (restart)",
-     "Restarts the program in its normal mode (not called with a demo parameter)."),
 ]
 
 
@@ -1667,12 +1660,12 @@ def main():
     ap.add_argument("--scale", type=float, default=None,
                     help="scale factor (default: automatic, following the Windows DPI)")
     ap.add_argument("--seed", type=int, default=None, help="fixed seed for reproducible runs")
-    ap.add_argument("--demo", default="", help="demo mode 1..14 (pcCMD)")
+    ap.add_argument("--demo", default="", help="demo mode 1..12 (pcCMD)")
     ap.add_argument("--speed", type=float, default=1.0,
                     help="playback speed, e.g. 0.5 = half speed (as with a video player)")
     args = ap.parse_args()
-    if args.demo and args.demo not in [str(i) for i in range(1, 15)]:
-        ap.error("--demo must be 1..14")
+    if args.demo and args.demo not in [str(i) for i in range(1, 13)]:
+        ap.error("--demo must be 1..12")
 
     if sys.platform == "win32":
         try:   # sharp rendering on high-DPI screens

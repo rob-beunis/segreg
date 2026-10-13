@@ -33,14 +33,10 @@ It runs in any modern web browser, with nothing to install. Each demo can be ope
   https://rob-beunis.github.io/segreg/?demo=9
 - Demo 10 – Erosion of CS1 in a longer run (text, p. 20, no figure):
   https://rob-beunis.github.io/segreg/?demo=10
-- Demo 11 – Transfer training with background noise (text, p. 20, no figure):
+- Demo 11 – With background noise (text, p. 20, no figure):
   https://rob-beunis.github.io/segreg/?demo=11
 - Demo 12 – Interactive mode, all controls (the mode in which the screenshots were taken):
   https://rob-beunis.github.io/segreg/?demo=12
-- Demo 13 – CS1 and CS2 compounded, with background noise (not in the article):
-  https://rob-beunis.github.io/segreg/?demo=13
-- Demo 14 – Pretraining with CS2, then compound training (not in the article):
-  https://rob-beunis.github.io/segreg/?demo=14
 
 Optional additions to the address:
 
@@ -77,6 +73,7 @@ The Python and web versions follow `segreg.prg` procedure by procedure, with the
 - Parameters: the parameter table `SEGREGMEM.DBF` is not kept between sessions; the program starts with the demo values.
 - Form width: when the trace needs more room, the form widens to the right (in VFP its left edge moved to the left).
 - Additions: a demo panel and a playback speed control were added.
+- Demos 13 and 14 (compound training, not used in the article) remain in the code, but, as in the article version of the program, the Demo setting only goes up to 11.
 
 
 ## Acknowledgement
